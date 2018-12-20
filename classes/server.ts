@@ -3,14 +3,19 @@ import express from 'express';
 import { SERVER_PORT } from '../globals/environment';
 import http from 'http';
 import socketIO from 'socket.io';
+import { UsuariosLista } from './usuario-lista';
+import { Usuario } from './usuario';
+import { threadId } from 'worker_threads';
 
 //creando la clase del servidor
 export default class Server{
+
     //creando la variable del servidor express
     public app:express.Application;
     public port:Number;
     private httpServer:http.Server;
     public io:socketIO.Server;
+    public usuariosConectados = new UsuariosLista();
     //constructor del Server
     constructor(){
         this.app = express();
@@ -20,21 +25,43 @@ export default class Server{
         this.io = socketIO(this.httpServer);
         this.escucharSockets();
     }
+
+    //Programando getter de la unica instancia de la clase
+    //(Patrón de Diseño SINGLETON)
+    private static _instance:Server;
+    public static get instance(){
+        if(this._instance){
+            return this._instance;
+        }else{
+            this._instance = new this();
+            return this._instance
+        }
+    }
     //funcion para escuchar las conexiones
     public escucharSockets(){
         console.log("Listo para recibir conexiones o sockets o clientes");
         //el servidor escucha el evento connect y recibe al cliente conectado
         this.io.on('connect',cliente=>{
-            console.log("Nuevo cliente conectado");
+            console.log("Nuevo cliente conectado", cliente.id);
+            const usuario = new Usuario(cliente.id);
+            this.usuariosConectados.agregar(usuario);
             //el cliente que se ha conectado previamente, escucha su desconexión
             cliente.on('disconnect',()=>{
                 console.log("el cliente se ha desconectado");
+                this.usuariosConectados.borrarUsuario(cliente.id);
             });
             //el cliente que se ha conectado previamente, escucha un evento de nombre: 'mensaje'
             cliente.on('mensaje',(contenido)=>{
-                console.log("entrada", contenido);
+                console.log("[on-mensaje] => ", contenido);
                 this.io.emit('mensaje-nuevo', contenido);
-            })
+            });
+            cliente.on('configurar-usuario',(payload:any,callback:Function)=>{
+                this.usuariosConectados.actualizarNombre(cliente.id,payload.nombre);
+                callback({
+                    ok:true,
+                    mensaje:`Usuario ${payload.nombre} configurado`
+                });
+            });
         });
     }
     //funcion para iniciar el servidor
